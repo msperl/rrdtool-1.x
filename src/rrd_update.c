@@ -375,6 +375,262 @@ rrd_info_t *rrd_update_v(
     return result;
 }
 
+static const char *rrd_get_file_template(const char *filename) /* {{{ */
+{
+	rrd_t     rrd;
+	rrd_file_t *rrd_file;
+	unsigned int i;
+	size_t len=0;
+	char *template = NULL;
+
+	/* open file */
+	rrd_init(&rrd);
+	rrd_file = rrd_open(filename, &rrd, RRD_READONLY);
+	if (rrd_file == NULL)
+		goto err_free;
+
+	/* read the data from the rrd */
+	for (i = 0; i < rrd.stat_head->ds_cnt; i++) {
+		len += strlen(rrd.ds_def[i].ds_nam)+1;
+	}
+	/* now that we got it allocate memory */
+	template = malloc(len);
+	if (!template)
+		goto err_close;
+
+	/* fill in for real */
+	for (i = 0; i < rrd.stat_head->ds_cnt; i++) {
+		if (i)
+			strcat(template,":");
+		strcat(template,rrd.ds_def[i].ds_nam);
+	}
+
+err_close:
+	rrd_close(rrd_file);
+err_free:
+	rrd_free(&rrd);
+	return (template);
+} /* }}} const char *rrd_get_file_template */
+
+/* this cache format could get optimized   by using an array of lists 
+ * instead to minimizetime needed to walking the list*/
+
+struct rrd_template_cache {
+	struct rrd_template_cache *next;
+	const char* filename;
+	const char* format;
+};
+/* this global could possibly get added to the rrdc structures 
+ * of the open connection, which gets destroyed and freed on close
+ */
+struct rrd_template_cache *rrd_template_cache_head = NULL;
+
+static const char *rrd_get_template_format(const char *filename) /* {{{ */
+{
+	const char *format = NULL;
+	struct rrd_template_cache *next = rrd_template_cache_head;
+	/* get information from the filename */
+	while (next) {
+		if (strcmp(filename, next->filename)==0)
+			return next->format;
+		next = next->next;
+	}
+	/* if we have not found it, then create it */
+
+	/* fetch information from file */
+	format = rrd_get_file_template(filename);
+	if (!format)
+		return NULL;
+	/* and create object */
+	next = malloc(sizeof(struct rrd_template_cache));
+	if (!next)
+		goto out;
+	next->filename = strdup(filename);
+	if (!next->filename)
+		goto free_next;
+	next->format = format;
+	/* at least this needs locking */
+	next->next = rrd_template_cache_head;
+	rrd_template_cache_head = next;
+
+	return format;
+
+free_next:
+	free(next);
+out:
+	return NULL;
+} /* }}} const char *rrd_get_template_format */
+
+static size_t count_fields(const char *field)
+{
+	int c=1;
+	/* check for empty */
+	if (!field)
+		return 0;
+	if (!field[0])
+		return 0;
+	/* now count */
+	while((field=strchr(field,':'))) {
+		c++;
+		field++;
+	}
+	return c;
+}
+
+static int concat_field_n(char* string, const char *value, int field) {
+	const char *colon;
+	size_t len;
+	/* find the field */
+	while (field) {
+		value = strchr(value,':');
+		if (!value)
+			return -1;
+		value++;
+		field--;
+	}
+	/* get the end of string and calculate length */
+	colon = strchr(value,':');
+	if (colon) {
+		len = colon-value;
+	} else {
+		len = strlen(value);
+	}
+	/* now concat strings */
+	strncat(string,value,len);
+	return 0;
+}
+static int concat_field(
+	char *string,
+	const char* tpl,
+	const char* value,
+	const char* field)
+{
+	int fieldnum=0;
+	size_t len = 0;
+	/* get length */
+	char *colon = strchr(field,':');
+	if (colon) {
+		len=colon-field;
+	} else
+		len=strlen(field);
+
+	/* concat ":" */
+	strcat(string,":");
+	/* find field in tpl */
+	while(tpl) {
+		/* check if it matches (including terminating 0 or :) */
+		if((strncmp(tpl,field,len)==0)) {
+			if ((tpl[len] == 0) || (tpl[len] == ':'))
+				return concat_field_n(
+					string, value, fieldnum+1);
+		}
+		/* increment tpl */
+		tpl = strchr(tpl,':');
+		if (tpl)
+			tpl++;
+	}
+	/* concat "U" */
+	strcat(string,"U");
+	/* and return ok */
+	return 0;
+}
+
+static char *rrd_map_template_to_values(const char *tpl,  /* {{{ */
+					const char *rrd_tpl,
+					const char *value)
+{
+	char *mapped;
+	size_t fields_tpl = count_fields(tpl);
+	size_t fields_rrd_tpl = count_fields(rrd_tpl);
+	size_t fields_value = count_fields(value);
+	size_t len;
+	size_t i;
+
+	/* check number of fields*/
+	if (fields_tpl != fields_value-1) {
+		rrd_set_error("rrd_map_template_to_values: "
+			"mismatch of number of fields in template (%zu) "
+			"with number of fields in values (%zu)",
+			fields_tpl,fields_value-1);
+		return NULL;
+	}
+	if (fields_tpl > fields_rrd_tpl) {
+		rrd_set_error("rrd_map_template_to_values: "
+			"number of fields in template (%zu) "
+			"bigger than number of fields in rrdfile (%zu)",
+			fields_tpl,fields_rrd_tpl);
+		return NULL;
+	}
+
+	/* now calculate effective length and allocate it */
+	len=strlen(value) 
+		+ (fields_rrd_tpl-fields_tpl) * 2 /* = strlen(":U") */; 
+
+	mapped = malloc(len+1);
+	if (!mapped)
+		return NULL;
+
+	/* first copy timestamp */
+	if (concat_field_n(mapped,value,0))
+		goto err;
+
+	/* now walk the list of fields from rrdtemplate*/
+	for (i=0;i<fields_rrd_tpl;i++) {
+		if (concat_field(mapped,tpl,value,rrd_tpl))
+			goto err;
+		rrd_tpl = strchr(rrd_tpl,':');
+		if (rrd_tpl)
+			rrd_tpl++;
+	}
+		
+	return mapped;
+err:
+	free(mapped);
+	return NULL;
+} /* }}} const char *rrd_map_template_to_values */
+
+static int rrd_template_update(const char *filename,  /* {{{ */
+			const char *tpl, 
+			int values_num,
+			const char * const *values)
+{
+	int i;
+	int ret = 1;
+	char **mapped_values = NULL;
+	const char *format = rrd_get_template_format(filename);
+	if (!format)
+		return -ENOMEM;
+
+	/* now start to map those fields */
+	mapped_values = calloc(values_num,sizeof(char*));
+	if (!mapped_values) {
+		rrd_set_error("rrd_template_update: "
+			" could not allocate memory");
+		goto error;
+	}
+	/* map the values */
+	for(i=0;i<values_num;i++) {
+		mapped_values[i] =
+			rrd_map_template_to_values(
+				tpl, format, values[i]);
+		if (!mapped_values[i])
+			goto error;
+	}
+	/* now call the function */
+	ret = rrdc_update(filename, values_num, 
+			(const char * const *) mapped_values);
+
+error:	
+	/* free the temporary structures again */
+	if (mapped_values) {
+		for(i=0;i<values_num;i++)
+			free(mapped_values[i]);
+		free(mapped_values);
+	}
+
+	return ret;
+} /* }}} int rrd_template_update */
+
 int rrd_update(
     int argc,
     char **argv)
@@ -435,13 +691,6 @@ int rrd_update(
         }
     }
 
-    if ((tmplt != NULL) && rrdc_is_connected(opt_daemon))
-    {
-        rrd_set_error("The caching daemon cannot be used together with "
-                "templates yet.");
-        goto out;
-    }
-
     if (! rrdc_is_connected(opt_daemon))
     {
       rc = rrd_update_r(argv[optind], tmplt,
@@ -449,12 +698,22 @@ int rrd_update(
     }
     else /* we are connected */
     {
-        rc = rrdc_update (argv[optind], /* file */
-                          argc - optind - 1, /* values_num */
-                          (const char *const *) (argv + optind + 1)); /* values */
-        if (rc > 0)
-            rrd_set_error("Failed sending the values to rrdcached: %s",
-                          rrd_strerror (rc));
+	rrd_clear_error();
+	if (tmplt)
+		rc = rrd_template_update (
+			argv[optind], /* file */
+			tmplt,
+			argc - optind - 1, /* values_num */
+			(const char *const *) (argv + optind + 1)); /* values */
+	else
+		rc = rrdc_update (
+			argv[optind], /* file */
+			argc - optind - 1, /* values_num */
+			(const char *const *) (argv + optind + 1)); /* values */
+	if (rc > 0)
+		if (!rrd_test_error()) 
+			rrd_set_error("Failed sending the values to rrdcached: %s",
+				rrd_strerror (rc));
     }
 
   out:

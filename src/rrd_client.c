@@ -71,6 +71,8 @@ static char *sd_path = NULL; /* cache the path for sd */
 static const char *get_path (const char *path, char *resolved_path) /* {{{ */
 {
   const char *ret = path;
+  const char *strip = getenv("RRDCACHED_STRIPPATH");
+  size_t len;
   int is_unix = 0;
 
   if ((path == NULL) || (resolved_path == NULL) || (sd_path == NULL))
@@ -91,7 +93,17 @@ static const char *get_path (const char *path, char *resolved_path) /* {{{ */
   {
     if (*path == '/') /* not absolute path */
     {
-      rrd_set_error ("absolute path names not allowed when talking "
+      /* if we are stripping, then check and remove the head */
+      if (strip) {
+	      len=strlen(strip);
+	      if (strncmp(path,strip,len)==0) {
+		      path+=len;
+		      while (*path=='/')
+			      path++;
+		      return path;
+	      }
+      } else
+        rrd_set_error ("absolute path names not allowed when talking "
           "to a remote daemon");
       return NULL;
     }
