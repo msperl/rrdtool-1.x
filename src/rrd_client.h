@@ -56,7 +56,7 @@
 
 #define RRDCACHED_DEFAULT_PORT "42217"
 #define ENV_RRDCACHED_ADDRESS "RRDCACHED_ADDRESS"
-
+#define ENV_RRDCACHED_STRIPPATH "RRDCACHED_STRIPPATH"
 
 // Windows version has no daemon/client support
 

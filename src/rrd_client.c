@@ -71,7 +71,7 @@ static char *sd_path = NULL; /* cache the path for sd */
 static const char *get_path (const char *path, char *resolved_path) /* {{{ */
 {
   const char *ret = path;
-  const char *strip = getenv("RRDCACHED_STRIPPATH");
+  const char *strip = getenv(ENV_RRDCACHED_STRIPPATH);
   size_t len;
   int is_unix = 0;
 
