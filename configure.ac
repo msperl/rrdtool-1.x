@@ -522,6 +522,8 @@ AM_CONDITIONAL(BUILD_LIBWRAP,[test $have_libwrap != no])
 
 AM_CONDITIONAL(BUILD_RRDGRAPH,[test $enable_rrd_graph != no])
 
+EX_CHECK_ALL(glib-2.0,   glib_check_version,            glib.h,                 glib-2.0,    2.28.7, ftp://ftp.gtk.org/pub/glib/2.28/, "")
+LIBS="${LIBS} -lglib-2.0"
 
 CORE_LIBS="$LIBS"
 
@@ -537,7 +539,6 @@ EX_CHECK_ALL(cairo,      cairo_ps_surface_create,       cairo-ps.h,             
 EX_CHECK_ALL(pangocairo-1.0,  pango_cairo_context_set_font_options,  pango/pango.h,  pangocairo,  1.28.4,    http://ftp.gnome.org/pub/GNOME/sources/pango/1.28, "")
 
 fi
-EX_CHECK_ALL(glib-2.0,   glib_check_version,            glib.h,                 glib-2.0,    2.28.7, ftp://ftp.gtk.org/pub/glib/2.28/, "")
 EX_CHECK_ALL(xml2,       xmlParseFile,                  libxml/parser.h,        libxml-2.0,        2.7.8,  http://xmlsoft.org/downloads.html, /usr/include/libxml2)
 
 if test "$EX_CHECK_ALL_ERR" = "YES"; then
