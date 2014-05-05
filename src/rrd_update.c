@@ -563,7 +563,7 @@ static char *rrd_map_template_to_values(const char *tpl,  /* {{{ */
 	size_t fields_tpl      = _count_fields(tpl);
 	size_t fields_file_tpl = _count_fields(file_tpl);
 	size_t fields_value    = _count_fields(value);
-	char *ptr;
+	const char *ptr;
 	size_t len;
 	size_t i;
 	int ret;
