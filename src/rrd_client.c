@@ -95,10 +95,10 @@ static const char *get_path (const char *path, char *resolved_path) /* {{{ */
     {
       /* if we are stripping, then check and remove the head */
       if (strip) {
-	      len=strlen(strip);
+	      len = strlen(strip);
 	      if (strncmp(path,strip,len)==0) {
-		      path+=len;
-		      while (*path=='/')
+		      path += len;
+		      while (*path == '/')
 			      path++;
 		      return path;
 	      }
