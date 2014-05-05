@@ -523,7 +523,7 @@ AM_CONDITIONAL(BUILD_LIBWRAP,[test $have_libwrap != no])
 AM_CONDITIONAL(BUILD_RRDGRAPH,[test $enable_rrd_graph != no])
 
 EX_CHECK_ALL(glib-2.0,   glib_check_version,            glib.h,                 glib-2.0,    2.28.7, ftp://ftp.gtk.org/pub/glib/2.28/, "")
-LIBS="${LIBS} -lglib-2.0"
+#LIBS="${LIBS} -lglib-2.0"
 
 CORE_LIBS="$LIBS"
 
