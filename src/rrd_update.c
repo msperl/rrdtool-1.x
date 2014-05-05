@@ -398,6 +398,7 @@ static char *rrd_get_file_template(const char *filename) /* {{{ */
 	template = malloc(len);
 	if (!template)
 		goto err_close;
+	template[0] = 0;
 
 	/* fill in for real */
 	for (i = 0; i < rrd.stat_head->ds_cnt; i++) {
@@ -445,7 +446,7 @@ static const char *rrd_get_file_template_format(const char *filename) /* {{{ */
 	}
 
 	/* fetch from cache */
-	format = (char *) g_tree_lookup (rrd_file_template_cache, 
+	format = (char *) g_tree_lookup(rrd_file_template_cache, 
 					filename);
 	if (format)
 		return format;
@@ -453,7 +454,7 @@ static const char *rrd_get_file_template_format(const char *filename) /* {{{ */
 	/* fetch information from file */
 	format = rrd_get_file_template(filename);
 	if (!format)
-		return NULL;
+	        return NULL;
 
 	/* create copy of filename */
 	filename = strdup(filename);
@@ -462,13 +463,13 @@ static const char *rrd_get_file_template_format(const char *filename) /* {{{ */
 
 	/* and add object to tree */
 	g_tree_insert (rrd_file_template_cache, 
-		(char *)filename, 
+		       (char *)filename, 
 		format);
 
 	return format;
 
 free_format:
-	free((void*)format);
+	free((void *)format);
 	return NULL;
 } /* }}} const char *rrd_get_file_template_format */
 
@@ -499,6 +500,7 @@ static int _concat_field_n(char* string, const char *value, int field) {
 		value++;
 		field--;
 	}
+
 	/* get the end of string and calculate length */
 	colon = strchr(value, ':');
 	if (colon) {
@@ -519,7 +521,7 @@ static int _concat_field(
 	const char* value,
 	const char* field)
 {
-	int fieldnum=0;
+	int fieldidx=0;
 	size_t len = 0;
 
 	/* get length */
@@ -538,13 +540,15 @@ static int _concat_field(
 		if((strncmp(tpl, field, len)==0)) {
 			if ((tpl[len] == 0) || (tpl[len] == ':')) {
 				return _concat_field_n(
-					string, value, fieldnum+1);
+					string, value, fieldidx+1);
 			}
 		}
 		/* increment tpl */
 		tpl = strchr(tpl, ':');
 		if (tpl)
 			tpl++;
+		/* and also increase the field index */
+		fieldidx++;
 	}
 
 	/* concat "U" */
@@ -585,10 +589,15 @@ static char *rrd_map_template_to_values(const char *tpl,  /* {{{ */
 	}
 
 	/* now calculate effective length and allocate it */
-	len=strlen(value) 
-		+ (fields_file_tpl-fields_tpl) * 2 /* = strlen(":U") */; 
+	len = strlen(value) /* length of the value */
+	        + 1 /* terminating null byte */
+  	        + (fields_file_tpl-fields_tpl) /* number of fields that we have 
+						* more in the file_template 
+						* compared to the given template 
+						*/
+	        * 2 /* = strlen(":U") */; 
 
-	mapped = malloc(len+1);
+	mapped = malloc(len);
 	if (!mapped)
 		return NULL;
 	mapped[0] = 0;
@@ -635,11 +644,14 @@ static int rrd_template_update(const char *filename,  /* {{{ */
 			const char * const *values)
 {
 	int i;
-	int ret = 1;
+	int ret = -1;
 	char **mapped_values = NULL;
-	const char *format = rrd_get_file_template_format(filename);
-	if (!format)
+	const char *file_format;
+
+	file_format= rrd_get_file_template_format(filename);
+	if (!file_format)
 		return -ENOMEM;
+
 
 	/* now start to map those fields */
 	mapped_values = calloc(values_num,sizeof(char*));
@@ -653,7 +665,7 @@ static int rrd_template_update(const char *filename,  /* {{{ */
 	for(i=0;i<values_num;i++) {
 		mapped_values[i] =
 			rrd_map_template_to_values(
-				tpl, format, values[i]);
+				tpl, file_format, values[i]);
 		if (!mapped_values[i])
 			goto error;
 	}
